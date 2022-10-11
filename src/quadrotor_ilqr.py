@@ -1,5 +1,6 @@
 import sys
 from src.quadrotor_ilqr_binding import QuadrotorILQR
+from scipy.spatial.transform import Rotation as R
 import src.trajectory_pb2 as traj
 import src.ilqr_options_pb2 as opts
 import numpy as np
@@ -62,41 +63,49 @@ def extract_traj_array(trajectory: traj.QuadrotorTrajectory):
     return out
 
 
-def make_state(x_m=0.0, y_m=0.0, z_m=0.0):
+def make_state(x_m=0.0, y_m=0.0, z_m=0.0, roll_rad=0.0, pitch_rad=0.0, yaw_rad=0.0):
+    # quaternion in x, y, z, w format from euler angles
+    quat = R.from_euler("xyz", [roll_rad, pitch_rad, yaw_rad]).as_quat()
+
     return traj.QuadrotorState(
         inertial_from_body=traj.SE3(
             translation=traj.Vec3(c0=x_m, c1=y_m, c2=z_m),
-            rotation=traj.SO3(quaternion=traj.Vec4(c0=1, c1=0, c2=0, c3=0)),
+            rotation=traj.SO3(
+                quaternion=traj.Vec4(c0=quat[3], c1=quat[0], c2=quat[1], c3=quat[2])
+            ),
         ),
         body_velocity=traj.Vec6(),
     )
 
 
-def make_square_traj_pt(t_s, vel_mps, horizon_s):
+def make_traj_pt(t_s, vel_mps, horizon_s):
     quarter_horizon_s = horizon_s / 4.0
     if t_s < quarter_horizon_s:
-        return make_state(x_m=vel_mps * t_s, y_m=0.0, z_m=0.0)
+        return make_state(x_m=vel_mps * t_s, y_m=0.0, z_m=0.0, roll_rad=0.0)
     if t_s < 2.0 * quarter_horizon_s:
         return make_state(
             x_m=vel_mps * quarter_horizon_s,
             y_m=vel_mps * (t_s - quarter_horizon_s),
             z_m=10.0 / 3.0,
+            roll_rad=1 * np.pi / 3.0,
         )
     if t_s < 3.0 * quarter_horizon_s:
         return make_state(
             x_m=vel_mps * (3.0 * quarter_horizon_s - t_s),
             y_m=vel_mps * quarter_horizon_s,
             z_m=20.0 / 3.0,
+            roll_rad=2.0 * np.pi / 3.0,
         )
     return make_state(
         x_m=0.0,
         y_m=vel_mps * (4.0 * quarter_horizon_s - t_s),
         z_m=10.0,
+        roll_rad=np.pi,
     )
 
 
 def plot_temporal_trajectories(traj_dict):
-    fig, ax = plt.subplots(4, 1, figsize=(9, 12), sharex=True)
+    fig, ax = plt.subplots(7, 1, figsize=(9, 12), sharex=True)
 
     for label, traj in traj_dict.items():
         traj_array = extract_traj_array(traj)
@@ -116,19 +125,50 @@ def plot_temporal_trajectories(traj_dict):
             traj_array[:, IDX.translation_z_m],
             label=label,
         )
+
+        xyz_euler_rad = np.array(
+            [
+                R.from_quat(
+                    [
+                        x[IDX.quaternion_x],
+                        x[IDX.quaternion_y],
+                        x[IDX.quaternion_z],
+                        x[IDX.quaternion_w],
+                    ]
+                ).as_euler("xyz")
+                for x in traj_array
+            ]
+        )
         ax[3].plot(
+            traj_array[:, IDX.time_s],
+            np.unwrap(xyz_euler_rad[:, 0]),
+            label=label,
+        )
+        ax[4].plot(
+            traj_array[:, IDX.time_s],
+            xyz_euler_rad[:, 1],
+            label=label,
+        )
+        ax[5].plot(
+            traj_array[:, IDX.time_s],
+            xyz_euler_rad[:, 2],
+            label=label,
+        )
+
+        ax[6].plot(
             traj_array[:, IDX.time_s],
             traj_array[:, IDX.control_0 : IDX.control_3 + 1],
             label=label,
         )
-    ax[0].legend()
     ax[0].set_ylabel("x translation [m]")
-    ax[1].legend()
     ax[1].set_ylabel("y translation [m]")
-    ax[2].legend()
     ax[2].set_ylabel("z translation [m]")
-    ax[3].legend()
-    ax[3].set_ylabel("control")
+    ax[3].set_ylabel("roll [rad]")
+    ax[4].set_ylabel("pitch [rad]")
+    ax[5].set_ylabel("yaw [rad]")
+    ax[6].set_ylabel("control")
+
+    [axis.legend() for axis in ax]
 
     fig.align_ylabels()
     ax[-1].set_xlabel("time [s]")
@@ -220,7 +260,7 @@ def main(show_plots: bool = True, plot_iters: bool = False, save_anim_path: str 
         points=[
             traj.QuadrotorTrajectoryPoint(
                 time_s=t_s,
-                state=make_square_traj_pt(t_s, vel_mps, horizon_s),
+                state=make_traj_pt(t_s, vel_mps, horizon_s),
                 control=traj.Vec4(),
             )
             for t_s in time_s
