@@ -1,17 +1,18 @@
 {
-    "folders": [
-        {
-            "path": "."
-        }
-    ],
-    "settings": {
-        "clangd.arguments": [
-            "-index",
-            "-background-index",
-            "-log=verbose",
-            "-j=4",
-            "-compile-commands-dir=${workspaceRoot}",
-        ],
-        "clang-format.style": "google",
+  "folders": [
+    {
+      "path": "."
     }
+  ],
+  "settings": {
+    "clangd.arguments": [
+      "-index",
+      "-background-index",
+      "-log=verbose",
+      "-j=4",
+      "-compile-commands-dir=${workspaceRoot}"
+    ],
+    "clang-format.style": "google",
+    "cSpell.words": ["quadrotor"]
+  }
 }
